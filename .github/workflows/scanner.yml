@@ -24,11 +24,10 @@ jobs:
 
       - name: Run Market Scan
         env:
-          DHAN_CLIENT_ID: ${{ secrets.DHAN_CLIENT_ID }}
-          DHAN_ACCESS_TOKEN: ${{ secrets.DHAN_ACCESS_TOKEN }}
+          DHAN_CLIENT_ID: ${{secrets.DHAN_CLIENT_ID}}
+          DHAN_ACCESS_TOKEN: ${{secrets.DHAN_ACCESS_TOKEN}}
         run: |
           python scanner.py
-
       - name: Commit and Push Updated Data
         run: |
           git config --global user.name "Market Bot"
