@@ -2,72 +2,84 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Live Dhan F&O Scanner</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NSE F&O Autonomous Live Scanner</title>
   <style>
-    body { background: #080d1a; color: #e2e8f0; font-family: system-ui, sans-serif; margin: 0; padding: 20px; }
-    .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1e293b; padding-bottom: 15px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 20px; background: #0f172a; border-radius: 8px; overflow: hidden; }
-    th { background: #1e293b; color: #94a3b8; padding: 12px; text-align: left; font-size: 13px; }
-    td { padding: 14px 12px; border-bottom: 1px solid #1e293b; font-size: 14px; }
-    .badge { padding: 4px 8px; border-radius: 4px; font-weight: 700; font-size: 11px; }
-    .buy-ce { background: #064e3b; color: #34d399; }
-    .buy-pe { background: #7f1d1d; color: #f87171; }
+    * { box-sizing: border-box; }
+    body { background: #070b14; color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 24px; }
+    .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1e293b; padding-bottom: 16px; margin-bottom: 20px; }
+    .title { font-size: 20px; font-weight: bold; }
+    .meta-box { font-size: 13px; color: #94a3b8; display: flex; gap: 12px; align-items: center; }
+    .badge-live { background: #064e3b; color: #34d399; padding: 4px 10px; border-radius: 6px; font-weight: bold; }
+    table { width: 100%; border-collapse: collapse; background: #0f172a; border-radius: 8px; overflow: hidden; font-size: 13px; }
+    th { background: #1e293b; color: #94a3b8; text-align: left; padding: 12px 14px; font-weight: 600; text-transform: uppercase; }
+    td { padding: 12px 14px; border-bottom: 1px solid #1e293b; }
+    .badge { padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 11px; }
+    .buy-call { background: #064e3b; color: #34d399; }
+    .buy-put { background: #7f1d1d; color: #f87171; }
     .neutral { background: #334155; color: #94a3b8; }
-    .strike { color: #38bdf8; font-weight: bold; font-family: monospace; }
+    .strike { color: #38bdf8; font-weight: bold; font-family: monospace; font-size: 14px; }
+    .cpr { color: #64748b; font-family: monospace; font-size: 12px; }
   </style>
 </head>
 <body>
   <div class="header">
-    <h2>⚡ NSE Live F&O Scanner (Dhan Direct Cloud)</h2>
-    <span id="sync" style="color: #34d399; font-weight: bold;">● LIVE CLOUD FEED</span>
+    <div class="title">⚡ NSE Live F&O Scanner (Dhan Powered)</div>
+    <div class="meta-box">
+      <span id="update-time">Loading...</span>
+      <span class="badge-live">● GITHUB ENGINE ACTIVE</span>
+    </div>
   </div>
 
   <table>
     <thead>
       <tr>
-        <th>SYMBOL</th>
-        <th>LIVE SPOT (LTP)</th>
-        <th>SIGNAL</th>
-        <th>STRIKE DECISION</th>
-        <th>STOP LOSS</th>
-        <th>TARGET</th>
+        <th>Symbol</th>
+        <th>LTP (₹)</th>
+        <th>Style</th>
+        <th>Decision</th>
+        <th>Recommended Strike</th>
+        <th>Stop-Loss</th>
+        <th>Target</th>
         <th>CPR (TC / P / BC)</th>
       </tr>
     </thead>
-    <tbody id="stocks">
-      <tr><td colspan="7" style="text-align: center; color: #64748b;">Loading live market feed...</td></tr>
+    <tbody id="rows">
+      <tr><td colspan="8" style="text-align: center; color: #64748b; padding: 30px;">Loading live Dhan quotes...</td></tr>
     </tbody>
   </table>
 
   <script>
-    // Replace with your free deployed backend URL (Step 3)
-    const BACKEND_URL = "https://YOUR-BACKEND-APP.onrender.com/api/quotes";
-
-    async function fetchLiveFeed() {
+    async function loadData() {
       try {
-        const res = await fetch(BACKEND_URL);
-        const data = await res.json();
-        if (data.length > 0) {
-          document.getElementById("stocks").innerHTML = data.map(s => `
+        const res = await fetch("live_data.json?t=" + new Date().getTime());
+        if (!res.ok) throw new Error("Awaiting first scan");
+        const payload = await res.json();
+        
+        document.getElementById("update-time").textContent = "Last Synced: " + payload.updated_at;
+        
+        document.getElementById("rows").innerHTML = payload.data.map(s => {
+          const sigClass = s.signal === "BUY CALL" ? "buy-call" : (s.signal === "BUY PUT" ? "buy-put" : "neutral");
+          return `
             <tr>
-              <td style="font-weight: bold;">${s.symbol}</td>
-              <td style="font-family: monospace;">₹${s.ltp.toFixed(2)}</td>
-              <td><span class="badge ${s.signal === 'BUY CALL' ? 'buy-ce' : s.signal === 'BUY PUT' ? 'buy-pe' : 'neutral'}">${s.signal}</span></td>
+              <td style="font-weight: bold; font-size: 14px;">${s.symbol}</td>
+              <td style="font-family: monospace; font-weight: bold;">₹${s.ltp.toFixed(2)}</td>
+              <td><span class="badge" style="background: #1e293b; color: #cbd5e1;">${s.style}</span></td>
+              <td><span class="badge ${sigClass}">${s.signal}</span></td>
               <td class="strike">${s.strike}</td>
-              <td style="color: #f87171;">₹${s.sl}</td>
-              <td style="color: #34d399;">₹${s.tgt}</td>
-              <td style="color: #64748b; font-size: 12px;">${s.cpr_tc} / ${s.cpr_p} / ${s.cpr_bc}</td>
+              <td style="color: #f87171; font-family: monospace;">₹${s.sl}</td>
+              <td style="color: #34d399; font-family: monospace;">₹${s.target}</td>
+              <td class="cpr">${s.cpr_tc} / ${s.cpr_p} / ${s.cpr_bc}</td>
             </tr>
-          `).join('');
-        }
+          `;
+        }).join("");
       } catch (e) {
-        document.getElementById("sync").innerText = "Connecting to Cloud Engine...";
+        document.getElementById("rows").innerHTML = `<tr><td colspan="8" style="text-align: center; color: #64748b; padding: 30px;">Workflow running first scan... Please check back in 1 minute.</td></tr>`;
       }
     }
 
-    // Refresh automatically every 3 seconds
-    setInterval(fetchLiveFeed, 3000);
-    fetchLiveFeed();
+    loadData();
+    setInterval(loadData, 10000); // Check for fresh file updates every 10s
   </script>
 </body>
 </html>
