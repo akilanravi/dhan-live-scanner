@@ -5,17 +5,13 @@ import requests
 import pandas as pd
 from dhanhq import dhanhq, DhanContext
 
-CLIENT_ID = os.getenv("1114099742", "").strip()
-ACCESS_TOKEN = os.getenv("eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJ1c2VyUmVnaW9uIjoiUjEiLCJpc3MiOiJkaGFuIiwicGFydG5lcklkIjoiIiwiZXhwIjoxNzkzOTgxMTI5LCJpYXQiOjE3OTM4OTQ3MjksInRva2VuQ29uc3VtZXJUeXBlIjoiU0VMRiIsIndlYmhvb2tVcmwiOiIiLCJkaGFuQ2xpZW50SWQiOiIxMTE0MDk5NzQyIn0.D-2qsSidi7Negv-jSV7-6Wu2w26AC14mESGv9AIPg708AgG9mA4NH_36S62SMGNXpZKncpyjDvoqa6VtOFdM7w", "").strip()
-
-print(f"Debug: CLIENT_ID length = {len(CLIENT_ID)}, ACCESS_TOKEN length = {len(ACCESS_TOKEN)}")
-
-if not CLIENT_ID or not ACCESS_TOKEN:
-    print(f"Error: Missing Dhan API credentials! (CLIENT_ID present: {bool(CLIENT_ID)}, ACCESS_TOKEN present: {bool(ACCESS_TOKEN)})")
-    exit(1)
+# ---------------------------------------------------------
+# DIRECT DHAN CREDENTIALS (SAFE IN PRIVATE REPOSITORY)
+# ---------------------------------------------------------
+CLIENT_ID = "1114099742"      # Your 10-digit Dhan Client ID
+ACCESS_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJ1c2VyUmVnaW9uIjoiUjEiLCJpc3MiOiJkaGFuIiwicGFydG5lcklkIjoiIiwiZXhwIjoxNzkzOTgxMTI5LCJpYXQiOjE3OTM4OTQ3MjksInRva2VuQ29uc3VtZXJUeXBlIjoiU0VMRiIsIndlYmhvb2tVcmwiOiIiLCJkaGFuQ2xpZW50SWQiOiIxMTE0MDk5NzQyIn0.D-2qsSidi7Negv-jSV7-6Wu2w26AC14mESGv9AIPg708AgG9mA4NH_36S62SMGNXpZKncpyjDvoqa6VtOFdM7w"         # Your generated Dhan Access Token
 
 dhan = dhanhq(DhanContext(CLIENT_ID, ACCESS_TOKEN))
-
 def get_fno_symbols():
     url = "https://archives.nseindia.com/content/fo/fo_mktlots.csv"
     headers = {"User-Agent": "Mozilla/5.0"}
