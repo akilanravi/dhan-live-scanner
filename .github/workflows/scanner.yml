@@ -25,9 +25,6 @@ jobs:
           pip install dhanhq pandas requests
 
       - name: Run Market Scan
-        env:
-          DHAN_CLIENT_ID: ${{ secrets.DHAN_CLIENT_ID }}
-          DHAN_ACCESS_TOKEN: ${{ secrets.DHAN_ACCESS_TOKEN }}
         run: |
           python scanner.py
 
