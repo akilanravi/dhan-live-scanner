@@ -1,0 +1,38 @@
+name: Dhan Live Market Scanner
+
+on:
+  schedule:
+    # Runs every 5 minutes Monday to Friday during Indian Market hours
+    - cron: '*/5 3-10 * * 1-5'
+  workflow_dispatch: # Allows you to click "Run manually" anytime
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: |
+          pip install dhanhq pandas
+
+      - name: Run Market Scan
+        env:
+          DHAN_CLIENT_ID: ${{ secrets.DHAN_CLIENT_ID }}
+          DHAN_ACCESS_TOKEN: ${{ secrets.DHAN_ACCESS_TOKEN }}
+        run: |
+          python scan_and_save.py
+
+      - name: Commit and Push Updated Data
+        run: |
+          git config --global user.name "Market Bot"
+          git config --global user.email "bot@github.com"
+          git add live_data.json
+          git commit -m "Update live market quotes" || exit 0
+          git push
