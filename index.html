@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Live Dhan F&O Scanner</title>
+  <style>
+    body { background: #080d1a; color: #e2e8f0; font-family: system-ui, sans-serif; margin: 0; padding: 20px; }
+    .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1e293b; padding-bottom: 15px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; background: #0f172a; border-radius: 8px; overflow: hidden; }
+    th { background: #1e293b; color: #94a3b8; padding: 12px; text-align: left; font-size: 13px; }
+    td { padding: 14px 12px; border-bottom: 1px solid #1e293b; font-size: 14px; }
+    .badge { padding: 4px 8px; border-radius: 4px; font-weight: 700; font-size: 11px; }
+    .buy-ce { background: #064e3b; color: #34d399; }
+    .buy-pe { background: #7f1d1d; color: #f87171; }
+    .neutral { background: #334155; color: #94a3b8; }
+    .strike { color: #38bdf8; font-weight: bold; font-family: monospace; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h2>⚡ NSE Live F&O Scanner (Dhan Direct Cloud)</h2>
+    <span id="sync" style="color: #34d399; font-weight: bold;">● LIVE CLOUD FEED</span>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>SYMBOL</th>
+        <th>LIVE SPOT (LTP)</th>
+        <th>SIGNAL</th>
+        <th>STRIKE DECISION</th>
+        <th>STOP LOSS</th>
+        <th>TARGET</th>
+        <th>CPR (TC / P / BC)</th>
+      </tr>
+    </thead>
+    <tbody id="stocks">
+      <tr><td colspan="7" style="text-align: center; color: #64748b;">Loading live market feed...</td></tr>
+    </tbody>
+  </table>
+
+  <script>
+    // Replace with your free deployed backend URL (Step 3)
+    const BACKEND_URL = "https://YOUR-BACKEND-APP.onrender.com/api/quotes";
+
+    async function fetchLiveFeed() {
+      try {
+        const res = await fetch(BACKEND_URL);
+        const data = await res.json();
+        if (data.length > 0) {
+          document.getElementById("stocks").innerHTML = data.map(s => `
+            <tr>
+              <td style="font-weight: bold;">${s.symbol}</td>
+              <td style="font-family: monospace;">₹${s.ltp.toFixed(2)}</td>
+              <td><span class="badge ${s.signal === 'BUY CALL' ? 'buy-ce' : s.signal === 'BUY PUT' ? 'buy-pe' : 'neutral'}">${s.signal}</span></td>
+              <td class="strike">${s.strike}</td>
+              <td style="color: #f87171;">₹${s.sl}</td>
+              <td style="color: #34d399;">₹${s.tgt}</td>
+              <td style="color: #64748b; font-size: 12px;">${s.cpr_tc} / ${s.cpr_p} / ${s.cpr_bc}</td>
+            </tr>
+          `).join('');
+        }
+      } catch (e) {
+        document.getElementById("sync").innerText = "Connecting to Cloud Engine...";
+      }
+    }
+
+    // Refresh automatically every 3 seconds
+    setInterval(fetchLiveFeed, 3000);
+    fetchLiveFeed();
+  </script>
+</body>
+</html>
