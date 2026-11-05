@@ -11,10 +11,6 @@ permissions:
 jobs:
   scan-and-update:
     runs-on: ubuntu-latest
-    env:
-      DHAN_CLIENT_ID: ${{ secrets.DHAN_CLIENT_ID }}
-      DHAN_ACCESS_TOKEN: ${{ secrets.DHAN_ACCESS_TOKEN }}
-
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -29,6 +25,9 @@ jobs:
           pip install dhanhq pandas requests
 
       - name: Run Market Scan
+        env:
+          DHAN_CLIENT_ID: ${{ secrets.DHAN_CLIENT_ID }}
+          DHAN_ACCESS_TOKEN: ${{ secrets.DHAN_ACCESS_TOKEN }}
         run: |
           python scanner.py
 
