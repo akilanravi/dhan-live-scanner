@@ -1,11 +1,10 @@
 import asyncio
 import os
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dhanhq import dhanhq, DhanContext
 import pandas as pd
 
-# Load credentials from Cloud Environment Variables (Secure)
 CLIENT_ID = os.getenv("DHAN_CLIENT_ID", "1114099742")
 ACCESS_TOKEN = os.getenv("DHAN_ACCESS_TOKEN", "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJ1c2VyUmVnaW9uIjoiUjEiLCJpc3MiOiJkaGFuIiwicGFydG5lcklkIjoiIiwiZXhwIjoxNzkzOTgxMTI5LCJpYXQiOjE3OTM4OTQ3MjksInRva2VuQ29uc3VtZXJUeXBlIjoiU0VMRiIsIndlYmhvb2tVcmwiOiIiLCJkaGFuQ2xpZW50SWQiOiIxMTE0MDk5NzQyIn0.D-2qsSidi7Negv-jSV7-6Wu2w26AC14mESGv9AIPg708AgG9mA4NH_36S62SMGNXpZKncpyjDvoqa6VtOFdM7w")
 
@@ -22,6 +21,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Start with top high-beta F&O symbols to stay well below rate limits
 FNO_MAPPING = {
     "NIFTY 50": {"id": "13", "seg": "IDX_I", "step": 50},
     "BANKNIFTY": {"id": "25", "seg": "IDX_I", "step": 100},
@@ -36,7 +36,6 @@ FNO_MAPPING = {
 }
 
 market_data = {}
-clients = set()
 
 def calculate_cpr_and_ema(df, step):
     prev_h, prev_l, prev_c = df['high'].iloc[-2], df['low'].iloc[-2], df['close'].iloc[-2]
@@ -72,28 +71,47 @@ def calculate_cpr_and_ema(df, step):
 
 @app.get("/api/quotes")
 async def get_quotes():
-    """Provides a REST endpoint for the web dashboard"""
     return list(market_data.values())
+
+async def fetch_stock_candles_with_retry(meta, max_retries=3):
+    """Executes call with backoff in case Dhan returns 429"""
+    for attempt in range(max_retries):
+        try:
+            res = dhan.intraday_minute_data(
+                security_id=meta["id"],
+                exchange_segment=meta["seg"],
+                instrument_type="INDEX" if "IDX" in meta["seg"] else "EQUITY"
+            )
+            # If Dhan returns an error payload indicating rate limit, back off
+            if isinstance(res, dict) and res.get("status") == "failure":
+                if "rate" in str(res).lower() or "limit" in str(res).lower():
+                    await asyncio.sleep(2 * (attempt + 1))
+                    continue
+            return res
+        except Exception as e:
+            if "429" in str(e):
+                await asyncio.sleep(2 * (attempt + 1))
+            else:
+                break
+    return None
 
 async def scanner_task():
     while True:
         for sym, meta in FNO_MAPPING.items():
-            try:
-                res = dhan.intraday_minute_data(
-                    security_id=meta["id"],
-                    exchange_segment=meta["seg"],
-                    instrument_type="INDEX" if "IDX" in meta["seg"] else "EQUITY"
-                )
-                if res and "data" in res and "close" in res["data"]:
-                    raw = res["data"]
+            res = await fetch_stock_candles_with_retry(meta)
+            
+            if res and isinstance(res, dict) and "data" in res and "close" in res["data"]:
+                raw = res["data"]
+                if len(raw.get("close", [])) >= 5:
                     df = pd.DataFrame({"high": raw["high"], "low": raw["low"], "close": raw["close"]})
-                    if len(df) >= 5:
-                        analysis = calculate_cpr_and_ema(df, meta["step"])
-                        market_data[sym] = {"symbol": sym, **analysis}
-            except Exception:
-                pass
-            await asyncio.sleep(0.4)
-        await asyncio.sleep(2)
+                    analysis = calculate_cpr_and_ema(df, meta["step"])
+                    market_data[sym] = {"symbol": sym, **analysis}
+
+            # 0.8s gap ensures requests never exceed 1-2 calls/sec
+            await asyncio.sleep(0.8)
+
+        # Rest 5 seconds after completing one full scan across all assets
+        await asyncio.sleep(5)
 
 @app.on_event("startup")
 async def startup():
