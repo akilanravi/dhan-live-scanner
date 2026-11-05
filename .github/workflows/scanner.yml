@@ -12,8 +12,8 @@ jobs:
   scan-and-update:
     runs-on: ubuntu-latest
     env:
-      DHAN_CLIENT_ID: ${{DHAN_CLIENT_ID: 1114099742 }}
-      DHAN_ACCESS_TOKEN: ${{DHAN_ACCESS_TOKEN: eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJ1c2VyUmVnaW9uIjoiUjEiLCJpc3MiOiJkaGFuIiwicGFydG5lcklkIjoiIiwiZXhwIjoxNzkzOTgxMTI5LCJpYXQiOjE3OTM4OTQ3MjksInRva2VuQ29uc3VtZXJUeXBlIjoiU0VMRiIsIndlYmhvb2tVcmwiOiIiLCJkaGFuQ2xpZW50SWQiOiIxMTE0MDk5NzQyIn0.D-2qsSidi7Negv-jSV7-6Wu2w26AC14mESGv9AIPg708AgG9mA4NH_36S62SMGNXpZKncpyjDvoqa6VtOFdM7w }}
+      DHAN_CLIENT_ID: ${{ secrets.DHAN_CLIENT_ID }}
+      DHAN_ACCESS_TOKEN: ${{ secrets.DHAN_ACCESS_TOKEN }}
 
     steps:
       - name: Checkout Repository
