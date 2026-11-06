@@ -1,43 +1,32 @@
-import base64
-import hashlib
-import hmac
 import json
 import math
-import os
-import struct
 import sys
 import time
-from datetime import datetime, timedelta, time as dt_time
+from datetime import datetime, time as dt_time
 from zoneinfo import ZoneInfo
 
 import requests
 
-# Dhan credentials are read only from GitHub Actions Secrets.
-CLIENT_ID = os.getenv("DHAN_CLIENT_ID", "").strip()
-ACCESS_TOKEN = os.getenv("DHAN_ACCESS_TOKEN", "").strip()
-# OPTIONAL: lets the scanner create a fresh 24-hour token on every run.
-DHAN_PIN = os.getenv("DHAN_PIN", "").strip()
-DHAN_TOTP_SECRET = os.getenv("DHAN_TOTP_SECRET", "").replace(" ", "").strip()
-
-API_BASE = "https://api.dhan.co/v2"
-AUTH_BASE = "https://auth.dhan.co"
+# Data source: Yahoo Finance (free, no API key). Yahoo's NSE data can be delayed
+# by several minutes, so treat signals as indicative, not tick-by-tick.
+YAHOO_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"}
 IST = ZoneInfo("Asia/Kolkata")
 OUTPUT_FILE = "live_data.json"
 REQUEST_TIMEOUT = 25
 
-# Verify security IDs and strike steps against the latest Dhan instrument list
-# before relying on the watchlist. These are carried over from the supplied project.
+# "yahoo" = Yahoo ticker, "step" = strike gap used for the indicative ATM strike.
 WATCHLIST = {
-    "NIFTY 50": {"id": "13", "segment": "IDX_I", "instrument": "INDEX", "step": 50},
-    "BANKNIFTY": {"id": "25", "segment": "IDX_I", "instrument": "INDEX", "step": 100},
-    "FINNIFTY": {"id": "27", "segment": "IDX_I", "instrument": "INDEX", "step": 50},
-    "RELIANCE": {"id": "2885", "segment": "NSE_EQ", "instrument": "EQUITY", "step": 20},
-    "HDFCBANK": {"id": "1333", "segment": "NSE_EQ", "instrument": "EQUITY", "step": 10},
-    "ICICIBANK": {"id": "4963", "segment": "NSE_EQ", "instrument": "EQUITY", "step": 10},
-    "INFY": {"id": "1594", "segment": "NSE_EQ", "instrument": "EQUITY", "step": 20},
-    "TCS": {"id": "11536", "segment": "NSE_EQ", "instrument": "EQUITY", "step": 20},
-    "SBIN": {"id": "3045", "segment": "NSE_EQ", "instrument": "EQUITY", "step": 5},
-    "TATAMOTORS": {"id": "3456", "segment": "NSE_EQ", "instrument": "EQUITY", "step": 5},
+    "NIFTY 50": {"yahoo": "^NSEI", "step": 50},
+    "BANKNIFTY": {"yahoo": "^NSEBANK", "step": 100},
+    "FINNIFTY": {"yahoo": "NIFTY_FIN_SERVICE.NS", "step": 50},
+    "RELIANCE": {"yahoo": "RELIANCE.NS", "step": 20},
+    "HDFCBANK": {"yahoo": "HDFCBANK.NS", "step": 10},
+    "ICICIBANK": {"yahoo": "ICICIBANK.NS", "step": 10},
+    "INFY": {"yahoo": "INFY.NS", "step": 20},
+    "TCS": {"yahoo": "TCS.NS", "step": 20},
+    "SBIN": {"yahoo": "SBIN.NS", "step": 5},
+    "TMPV (Tata Motors PV)": {"yahoo": "TMPV.NS", "step": 5},
 }
 
 
@@ -57,122 +46,45 @@ def ema(values, period):
     return value
 
 
-def totp_now(secret, digits=6, step=30):
-    """RFC 6238 TOTP using only the standard library (no pyotp needed)."""
-    padded = secret.upper() + "=" * (-len(secret) % 8)
-    key = base64.b32decode(padded, casefold=True)
-    counter = struct.pack(">Q", int(time.time() // step))
-    digest = hmac.new(key, counter, hashlib.sha1).digest()
-    offset = digest[-1] & 0x0F
-    code = (struct.unpack(">I", digest[offset:offset + 4])[0] & 0x7FFFFFFF) % (10 ** digits)
-    return str(code).zfill(digits)
-
-
-def resolve_access_token():
-    """Dhan access tokens last only 24 hours. If PIN + TOTP secret are stored as
-    secrets, generate a fresh token each run; otherwise use DHAN_ACCESS_TOKEN."""
-    if DHAN_PIN and DHAN_TOTP_SECRET:
-        try:
-            resp = requests.post(
-                f"{AUTH_BASE}/app/generateAccessToken",
-                params={"dhanClientId": CLIENT_ID, "pin": DHAN_PIN, "totp": totp_now(DHAN_TOTP_SECRET)},
-                timeout=REQUEST_TIMEOUT,
-            )
-            data = resp.json()
-            token = data.get("accessToken")
-            if token:
-                print("Generated a fresh Dhan access token using PIN + TOTP.")
-                return token
-            print(f"Token generation failed: {str(data)[:200]}")
-        except Exception as exc:
-            print(f"Token generation failed: {type(exc).__name__}")
-    return ACCESS_TOKEN
-
-
-def api_post(path, body):
-    headers = {
-        "access-token": ACCESS_TOKEN,   # replaced by resolve_access_token() in main()
-        "client-id": CLIENT_ID,
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
-    response = requests.post(
-        f"{API_BASE}{path}",
-        headers=headers,
-        json=body,
-        timeout=REQUEST_TIMEOUT,
-    )
-    if response.status_code >= 400:
-        # Dhan puts the real reason (e.g. DH-901 invalid token, 806 Data API not
-        # subscribed) in the body. The body never contains our credentials.
-        raise RuntimeError(f"HTTP {response.status_code}: {response.text[:200]}")
-    result = response.json()
-    if not isinstance(result, dict):
-        raise RuntimeError("Dhan returned an unexpected response format")
-    if result.get("status") == "failure":
-        # Do not print request headers or credentials.
-        raise RuntimeError(str(result.get("remarks") or result.get("message") or "Dhan API reported failure"))
-    return result
-
-
-def to_ist_datetime(raw, now):
-    """Dhan timestamps may be Unix epoch (s or ms) or seconds since 1980-01-01.
-    Pick whichever interpretation lands near 'now'."""
-    stamp = float(raw)
-    if stamp > 10_000_000_000:
-        stamp /= 1000.0
-    for offset in (0, 315532800):
-        candidate = datetime.fromtimestamp(stamp + offset, IST)
-        if now - timedelta(days=400) <= candidate <= now + timedelta(days=2):
-            return candidate
-    raise ValueError("timestamp outside expected range")
-
-
 def fetch_intraday_candles(symbol, meta, now):
-    start = (now - timedelta(days=10)).replace(hour=9, minute=0, second=0, microsecond=0)
-    body = {
-        "securityId": str(meta["id"]),
-        "exchangeSegment": meta["segment"],
-        "instrument": meta["instrument"],
-        "interval": 5,
-        "oi": False,
-        "fromDate": start.strftime("%Y-%m-%d %H:%M:%S"),
-        "toDate": now.strftime("%Y-%m-%d %H:%M:%S"),
-    }
-    response = api_post("/charts/intraday", body)
-    data = response.get("data") or {}
+    url = YAHOO_URL.format(ticker=meta["yahoo"])
+    params = {"interval": "5m", "range": "10d", "includePrePost": "false"}
+    last_error = None
+    for attempt in range(3):
+        try:
+            response = requests.get(url, params=params, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+            if response.status_code == 429:
+                raise RuntimeError("Yahoo rate-limited this request (HTTP 429)")
+            if response.status_code >= 400:
+                raise RuntimeError(f"Yahoo HTTP {response.status_code}: {response.text[:120]}")
+            result = (response.json().get("chart") or {}).get("result")
+            if not result:
+                raise RuntimeError("Yahoo returned no data for this ticker")
+            break
+        except Exception as exc:
+            last_error = exc
+            time.sleep(2 * (attempt + 1))
+    else:
+        raise RuntimeError(str(last_error))
 
-    required = ("high", "low", "close")
-    if any(not isinstance(data.get(key), list) for key in required):
-        raise RuntimeError("Dhan response is missing candle arrays")
-
-    timestamps = data.get("start_Time") or data.get("timestamp") or data.get("startTime")
-    if not isinstance(timestamps, list):
-        raise RuntimeError("Dhan response is missing candle timestamps")
-
-    highs, lows, closes = data["high"], data["low"], data["close"]
-    volumes = data.get("volume") or [0] * len(closes)
-    count = min(len(timestamps), len(highs), len(lows), len(closes), len(volumes))
-    if count < 25:
-        raise RuntimeError(f"Not enough 5-minute candles returned ({count})")
+    result = result[0]
+    stamps = result.get("timestamp") or []
+    quote = ((result.get("indicators") or {}).get("quote") or [{}])[0]
+    highs, lows, closes = quote.get("high") or [], quote.get("low") or [], quote.get("close") or []
+    volumes = quote.get("volume") or [0] * len(stamps)
 
     candles = []
-    for i in range(count):
-        try:
-            candle_time = to_ist_datetime(timestamps[i], now)
-            candles.append({
-                "time": candle_time,
-                "date": candle_time.date(),
-                "high": float(highs[i]),
-                "low": float(lows[i]),
-                "close": float(closes[i]),
-                "volume": float(volumes[i] or 0),
-            })
-        except (TypeError, ValueError, OverflowError):
-            continue
-
-    if not candles:
-        raise RuntimeError("No valid candles in Dhan response")
+    for i in range(min(len(stamps), len(highs), len(lows), len(closes))):
+        if highs[i] is None or lows[i] is None or closes[i] is None:
+            continue  # Yahoo leaves gaps as null
+        t = datetime.fromtimestamp(stamps[i], IST)
+        candles.append({
+            "time": t, "date": t.date(),
+            "high": float(highs[i]), "low": float(lows[i]), "close": float(closes[i]),
+            "volume": float((volumes[i] if i < len(volumes) else 0) or 0),
+        })
+    if len(candles) < 25:
+        raise RuntimeError(f"Not enough 5-minute candles returned ({len(candles)})")
     return candles
 
 
@@ -260,17 +172,8 @@ def load_previous():
 
 
 def main():
-    global ACCESS_TOKEN
     now = datetime.now(IST)
 
-    if not CLIENT_ID or not (ACCESS_TOKEN or (DHAN_PIN and DHAN_TOTP_SECRET)):
-        print("ERROR: DHAN_CLIENT_ID and a token (DHAN_ACCESS_TOKEN, or DHAN_PIN + DHAN_TOTP_SECRET) are missing from GitHub Secrets.")
-        previous = load_previous()
-        previous.update({"status": "error", "errors": [{"symbol": "ALL", "error": "Dhan secrets missing in GitHub Actions"}]})
-        write_payload(previous)
-        return 1
-
-    ACCESS_TOKEN = resolve_access_token()
     market_open = (
         now.weekday() < 5
         and dt_time(9, 15) <= now.time().replace(tzinfo=None) <= dt_time(15, 30)
@@ -278,7 +181,7 @@ def main():
 
     rows = []
     errors = []
-    print(f"Starting Dhan scan at {now:%Y-%m-%d %H:%M:%S %Z} (market_open={market_open})")
+    print(f"Starting scan at {now:%Y-%m-%d %H:%M:%S %Z} (market_open={market_open})")
 
     for symbol, meta in WATCHLIST.items():
         try:
@@ -287,12 +190,9 @@ def main():
             print(f"{symbol}: {row['signal']} | LTP {row['ltp']}")
         except Exception as exc:
             message = str(exc)
-            for secret in (ACCESS_TOKEN, DHAN_PIN, DHAN_TOTP_SECRET):
-                if secret:
-                    message = message.replace(secret, "[REDACTED]")
             errors.append({"symbol": symbol, "error": message[:240]})
             print(f"{symbol}: scan failed - {message[:180]}")
-        time.sleep(0.4)  # stay well inside Dhan's data-API rate limit
+        time.sleep(1.0)  # be polite to Yahoo
 
     if not rows:
         # Keep the last good rows visible instead of blanking the website.
