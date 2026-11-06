@@ -9,7 +9,7 @@ import requests
 
 # Dhan credentials are read only from GitHub Actions Secrets.
 CLIENT_ID = os.getenv("1114099742", "").strip()
-ACCESS_TOKEN = os.getenv("eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJ1c2VyUmVnaW9uIjoiUjEiLCJpc3MiOiJkaGFuIiwicGFydG5lcklkIjoiIiwiZXhwIjoxNzk0MDM4NzQ4LCJpYXQiOjE3OTM5NTIzNDgsInRva2VuQ29uc3VtZXJUeXBlIjoiU0VMRiIsIndlYmhvb2tVcmwiOiIiLCJkaGFuQ2xpZW50SWQiOiIxMTE0MDk5NzQyIn0.WsJahj7kNClvzsjYJlrqIgv1OSDRn87uvMD0H8OYxiL7JCgO8-kZH4pmCic-h64WOR1BfiminJS6uBV_jNSJAg", "").strip()
+ACCESS_TOKEN = os.getenv("2ad43154", "").strip()
 
 API_BASE = "https://api.dhan.co/v2"
 IST = ZoneInfo("Asia/Kolkata")
