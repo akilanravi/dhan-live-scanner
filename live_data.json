@@ -1,0 +1,10 @@
+{
+  "status": "waiting",
+  "updated_at": null,
+  "timezone": "Asia/Kolkata",
+  "total_scanned": 0,
+  "signals_count": 0,
+  "data": [],
+  "errors": [],
+  "note": "Waiting for the first successful Dhan scan."
+}

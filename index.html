@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#080d18">
+  <title>Options Trading Scanner</title>
+  <style>
+    :root{color-scheme:dark;--bg:#080d18;--panel:#111a2b;--line:#243149;--muted:#9aa9bf;--text:#edf3ff;--green:#39d99a;--red:#ff737d;--blue:#67c8ff;--amber:#f4c66b}
+    *{box-sizing:border-box}
+    body{margin:0;padding:24px;background:var(--bg);color:var(--text);font:14px/1.5 Inter,system-ui,Segoe UI,Arial,sans-serif}
+    .wrap{max-width:1500px;margin:auto}
+    header{display:flex;gap:18px;justify-content:space-between;align-items:center;flex-wrap:wrap;margin-bottom:20px}
+    h1{font-size:22px;margin:0 0 4px}
+    .sub,.muted{color:var(--muted)}
+    .status{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .pill{padding:6px 10px;border-radius:20px;background:#1b2a40;color:#c6d5e9;font-size:12px}
+    .pill.live{background:#103b31;color:var(--green)}
+    .pill.warn{background:#49391d;color:var(--amber)}
+    .stats{display:grid;grid-template-columns:repeat(3,minmax(130px,1fr));gap:12px;margin:18px 0}
+    .stat,.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px}
+    .stat{padding:14px 16px}.stat small{display:block;color:var(--muted)}.stat strong{font-size:22px}
+    .panel{overflow:hidden}
+    .table-wrap{overflow-x:auto}
+    table{width:100%;border-collapse:collapse;min-width:980px}
+    th,td{padding:12px 14px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+    th{background:#172238;color:#aebbd0;font-size:11px;letter-spacing:.07em;text-transform:uppercase}
+    tbody tr:hover{background:#152238}
+    .symbol{font-weight:700}.num{font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+    .signal{display:inline-block;padding:4px 8px;border-radius:6px;font-size:11px;font-weight:800}
+    .call{background:#103b31;color:var(--green)}.put{background:#4a2029;color:var(--red)}.neutral{background:#26354b;color:#b9c7d9}
+    .strike{color:var(--blue);font-weight:700}
+    .notice{padding:14px 16px;color:var(--muted)}
+    .foot{margin:14px 2px 0;color:var(--muted);font-size:12px}
+    .errors{margin-top:14px;padding:12px 16px;background:#30251a;border:1px solid #5b4525;border-radius:10px;color:#f2d39a}
+    @media(max-width:650px){body{padding:14px}h1{font-size:19px}.stats{grid-template-columns:1fr 1fr}.stat:last-child{grid-column:span 2}}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>⚡ NSE Options Trading Scanner</h1>
+      <div class="sub">Dhan market data · CPR + EMA 9/21 · CE / PE watchlist</div>
+    </div>
+    <div class="status">
+      <span id="connection" class="pill warn">Connecting…</span>
+      <span id="updated" class="pill">Waiting for first scan</span>
+    </div>
+  </header>
+
+  <section class="stats">
+    <div class="stat"><small>Symbols scanned</small><strong id="scanned">—</strong></div>
+    <div class="stat"><small>Active signals</small><strong id="signals">—</strong></div>
+    <div class="stat"><small>Market data age</small><strong id="age">—</strong></div>
+  </section>
+
+  <section class="panel">
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Symbol</th><th>Underlying LTP</th><th>Style</th><th>Signal</th>
+          <th>Indicative ATM</th><th>Underlying SL</th><th>Underlying Target</th>
+          <th>CPR TC / P / BC</th><th>EMA 9 / 21</th>
+        </tr></thead>
+        <tbody id="rows"><tr><td colspan="9" class="notice">Waiting for the first successful GitHub Actions scan…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+  <div id="errors" hidden class="errors"></div>
+  <p class="foot">Refreshes every 30 seconds. Signals are rule-based watchlist alerts, not guaranteed trades. SL/target values refer to the underlying index/stock price, not the option premium. Confirm expiry, lot size, liquidity, spread and live option premium before trading. No orders are placed by this website.</p>
+</div>
+<script>
+  const $ = id => document.getElementById(id);
+  function cell(row, value, className='') {
+    const td = document.createElement('td');
+    if (className) td.className = className;
+    td.textContent = value === null || value === undefined || value === '' ? '—' : String(value);
+    row.appendChild(td);
+  }
+  function fmt(value) {
+    return value === null || value === undefined ? '—' : Number(value).toFixed(2);
+  }
+  async function refresh() {
+    try {
+      const response = await fetch(`live_data.json?cache=${Date.now()}`, {cache:'no-store'});
+      if (!response.ok) throw new Error(`Data file returned HTTP ${response.status}`);
+      const payload = await response.json();
+      const rows = Array.isArray(payload.data) ? payload.data : [];
+      $('updated').textContent = `Updated: ${payload.updated_at || 'unknown'}`;
+      $('scanned').textContent = payload.total_scanned ?? rows.length;
+      $('signals').textContent = payload.signals_count ?? rows.filter(x => x.signal !== 'NEUTRAL').length;
+
+      let ageText = 'unknown';
+      let stale = false;
+      if (payload.updated_at) {
+        const parsed = new Date(payload.updated_at.replace(' IST', '+05:30'));
+        if (!Number.isNaN(parsed.getTime())) {
+          const minutes = Math.max(0, Math.floor((Date.now() - parsed.getTime()) / 60000));
+          ageText = minutes < 1 ? '<1 min' : `${minutes} min`;
+          stale = minutes > 15;
+        }
+      }
+      $('age').textContent = ageText;
+      $('connection').textContent = stale ? 'STALE DATA' : (payload.status === 'error' ? 'SCAN ERROR' : 'DATA RECEIVED');
+      $('connection').className = `pill ${stale || payload.status === 'error' ? 'warn' : 'live'}`;
+
+      const tbody = $('rows');
+      tbody.replaceChildren();
+      if (!rows.length) {
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 9;
+        td.className = 'notice';
+        td.textContent = 'No symbols were returned. Check the GitHub Actions run and Dhan API credentials.';
+        tr.appendChild(td); tbody.appendChild(tr);
+      } else {
+        rows.forEach(item => {
+          const tr = document.createElement('tr');
+          cell(tr, item.symbol, 'symbol');
+          cell(tr, `₹${fmt(item.ltp)}`, 'num');
+          cell(tr, item.style || 'INTRADAY');
+          const signal = document.createElement('td');
+          const badge = document.createElement('span');
+          badge.className = `signal ${item.signal === 'BUY CALL' ? 'call' : item.signal === 'BUY PUT' ? 'put' : 'neutral'}`;
+          badge.textContent = item.signal || 'NEUTRAL';
+          signal.appendChild(badge); tr.appendChild(signal);
+          cell(tr, item.strike, 'strike num');
+          cell(tr, item.sl === null ? '—' : `₹${fmt(item.sl)}`, 'num');
+          cell(tr, item.target === null ? '—' : `₹${fmt(item.target)}`, 'num');
+          cell(tr, `${fmt(item.cpr_tc)} / ${fmt(item.cpr_p)} / ${fmt(item.cpr_bc)}`, 'num');
+          cell(tr, `${fmt(item.ema9)} / ${fmt(item.ema21)}`, 'num');
+          tbody.appendChild(tr);
+        });
+      }
+      const errors = Array.isArray(payload.errors) ? payload.errors : [];
+      if (errors.length) {
+        $('errors').hidden = false;
+        $('errors').textContent = `Some symbols could not be scanned: ${errors.map(e => `${e.symbol}: ${e.error}`).join(' | ')}`;
+      } else {
+        $('errors').hidden = true;
+        $('errors').textContent = '';
+      }
+    } catch (error) {
+      $('connection').textContent = 'NO DATA';
+      $('connection').className = 'pill warn';
+      $('rows').innerHTML = '<tr><td colspan="9" class="notice">Cannot load live_data.json. Check that GitHub Pages is deployed and the scanner workflow has completed.</td></tr>';
+      $('age').textContent = '—';
+    }
+  }
+  refresh();
+  setInterval(refresh, 30000);
+</script>
+</body>
+</html>
