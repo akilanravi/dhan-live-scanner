@@ -10,6 +10,7 @@ ACCESS_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJ1c2VyUmVnaW9uIjoiUjEiLCJ
 
 dhan = dhanhq(DhanContext(CLIENT_ID, ACCESS_TOKEN))
 
+# Key F&O Watchlist with Dhan Security IDs and strike step sizes
 WATCHLIST = {
     "NIFTY 50": {"id": "13", "seg": "IDX_I", "step": 50},
     "BANKNIFTY": {"id": "25", "seg": "IDX_I", "step": 100},
@@ -23,7 +24,7 @@ WATCHLIST = {
     "TATAMOTORS": {"id": "3456", "seg": "NSE_EQ", "step": 5},
 }
 
-def calculate_cpr_and_strike(symbol, ltp, high, low, close, step):
+def calculate_levels(symbol, ltp, high, low, close, step):
     pivot = (high + low + close) / 3.0
     bc = (high + low) / 2.0
     tc = (2 * pivot) - bc
@@ -48,48 +49,57 @@ def calculate_cpr_and_strike(symbol, ltp, high, low, close, step):
 
 def main():
     results = []
-    print("Fetching live market data...")
+    print("Beginning Dhan scan...")
+
     for sym, meta in WATCHLIST.items():
         try:
-            # First attempt: Intraday historical minute candles
-            res = dhan.intraday_minute_data(
-                security_id=meta["id"],
-                exchange_segment=meta["seg"],
-                instrument_type="INDEX" if "IDX" in meta["seg"] else "EQUITY"
-            )
+            # Request latest OHLC data via Dhan API
+            quote = dhan.get_ohlc_data(securities={meta["seg"]: [int(meta["id"])]})
             
-            ltp, high, low, close = None, None, None, None
-            if res and isinstance(res, dict) and "data" in res and res["data"].get("close"):
-                raw = res["data"]
-                ltp = raw["close"][-1]
-                high = max(raw["high"][-5:])
-                low = min(raw["low"][-5:])
-                close = raw["close"][-2]
-            else:
-                # Fallback: Live LTP quote API when market is closed or no candles returned
-                quote = dhan.get_ohlc_data(securities={meta["seg"]: [int(meta["id"])]})
-                if quote and "data" in quote:
-                    d = list(quote["data"].values())[0]
-                    ltp = d.get("last_price", 0)
-                    high = d.get("ohlc", {}).get("high", ltp * 1.01)
-                    low = d.get("ohlc", {}).get("low", ltp * 0.99)
-                    close = d.get("ohlc", {}).get("close", ltp)
+            ltp = None
+            if quote and isinstance(quote, dict) and "data" in quote:
+                data_dict = quote["data"]
+                first_key = list(data_dict.keys())[0] if data_dict else None
+                if first_key:
+                    item_data = data_dict[first_key]
+                    ltp = item_data.get("last_price")
+                    ohlc = item_data.get("ohlc", {})
+                    high = ohlc.get("high", ltp * 1.01 if ltp else 100)
+                    low = ohlc.get("low", ltp * 0.99 if ltp else 100)
+                    close = ohlc.get("close", ltp if ltp else 100)
+
+            # Fallback to intraday minute candle if quote did not yield an LTP
+            if not ltp:
+                res = dhan.intraday_minute_data(
+                    security_id=meta["id"],
+                    exchange_segment=meta["seg"],
+                    instrument_type="INDEX" if "IDX" in meta["seg"] else "EQUITY"
+                )
+                if res and isinstance(res, dict) and "data" in res and res["data"].get("close"):
+                    c_data = res["data"]
+                    ltp = c_data["close"][-1]
+                    high = max(c_data["high"][-5:])
+                    low = min(c_data["low"][-5:])
+                    close = c_data["close"][-2]
 
             if ltp and ltp > 0:
-                item = calculate_cpr_and_strike(sym, ltp, high, low, close, meta["step"])
-                results.append(item)
-        except Exception as e:
-            print(f"Error on {sym}: {e}")
-        time.sleep(0.5)
+                row = calculate_levels(sym, ltp, high, low, close, meta["step"])
+                results.append(row)
+                print(f"Scanned {sym}: LTP={ltp}, Signal={row['signal']}")
+        except Exception as err:
+            print(f"Error scanning {sym}: {err}")
+        time.sleep(0.3)
 
     output = {
         "updated_at": time.strftime("%Y-%m-%d %H:%M:%S UTC"),
         "total_scanned": len(results),
         "data": results
     }
+
     with open("live_data.json", "w") as f:
         json.dump(output, f, indent=2)
-    print(f"Saved {len(results)} symbols.")
+
+    print(f"Completed scan. Saved {len(results)} records to live_data.json.")
 
 if __name__ == "__main__":
     main()
