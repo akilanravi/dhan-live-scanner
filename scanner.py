@@ -2,7 +2,7 @@ import json
 import math
 import sys
 import time
-from datetime import datetime, time as dt_time
+from datetime import datetime, timedelta, time as dt_time
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
@@ -15,6 +15,9 @@ IST = ZoneInfo("Asia/Kolkata")
 OUTPUT_FILE = "live_data.json"
 
 # Header tiles (GIFT Nifty is shown by the TradingView ticker on the page).
+NARROW_PCT = 0.35               # narrow CPR = width under 0.35% of pivot
+ST_PERIOD, ST_MULT = 10, 2.0     # Supertrend (10, 2)
+
 INDEX_TILES = {"Nifty 50": "^NSEI", "Bank Nifty": "^NSEBANK", "Sensex": "^BSESN"}
 
 INDEX_WATCH = {
@@ -60,112 +63,134 @@ def write_payload(payload):
         json.dump(payload, f, indent=2, ensure_ascii=False)
 
 
-def ema(values, period):
-    """Return the final EMA value using the standard recursive calculation."""
-    if len(values) < period:
-        return None
-    alpha = 2.0 / (period + 1.0)
-    value = sum(values[:period]) / period
-    for price in values[period:]:
-        value = (price * alpha) + (value * (1.0 - alpha))
-    return value
-
-
 def fetch_intraday_candles(symbol, meta, now):
     candles, _ = yahoo.chart(meta["yahoo"], "5m", "10d")
-    if len(candles) < 25:
+    if len(candles) < 40:
         raise RuntimeError(f"Not enough 5-minute candles returned ({len(candles)})")
     return candles
 
 
-def index_tile(name, ticker):
-    """Live tile for an index: last price + change vs previous session close."""
-    candles, meta = yahoo.chart(ticker, "5m", "5d")
-    days = sorted({c["date"] for c in candles})
-    if len(days) < 2:
-        raise RuntimeError("not enough sessions")
-    prev_close = [c for c in candles if c["date"] == days[-2]][-1]["close"]
-    last = candles[-1]
-    ltp = float(meta.get("regularMarketPrice") or last["close"])
+def index_tile(name, ticker, now):
+    """Header tile: live price from Yahoo's quote meta, change vs previous close."""
+    daily, meta = yahoo.chart(ticker, "1d", "5d")
+    if len(daily) < 2:
+        raise RuntimeError("not enough daily data")
+    ltp = float(meta.get("regularMarketPrice") or daily[-1]["close"])
+    today_bar = daily[-1]["date"] == now.date() or abs(daily[-1]["close"] - ltp) <= ltp * 0.0005
+    prev_close = daily[-2]["close"] if today_bar else daily[-1]["close"]
     return {"name": name, "ltp": round(ltp, 2), "prev_close": round(prev_close, 2),
             "change": round(ltp - prev_close, 2), "change_pct": round((ltp / prev_close - 1) * 100, 2),
-            "as_of": last["time"].strftime("%Y-%m-%d %H:%M IST")}
+            "as_of": now.strftime("%Y-%m-%d %H:%M IST")}
+
+
+def ema_series(values, period):
+    out, k, e = [], 2.0 / (period + 1), None
+    for i, v in enumerate(values):
+        if i < period - 1:
+            out.append(None)
+        else:
+            e = sum(values[:period]) / period if i == period - 1 else v * k + e * (1 - k)
+            out.append(e)
+    return out
+
+
+def rsi_last(closes, period=14):
+    if len(closes) <= period:
+        return None
+    gains = [max(closes[i] - closes[i - 1], 0) for i in range(1, len(closes))]
+    losses = [max(closes[i - 1] - closes[i], 0) for i in range(1, len(closes))]
+    ag, al = sum(gains[:period]) / period, sum(losses[:period]) / period
+    for i in range(period, len(gains)):
+        ag = (ag * (period - 1) + gains[i]) / period
+        al = (al * (period - 1) + losses[i]) / period
+    return 100.0 if al == 0 else 100 - 100 / (1 + ag / al)
+
+
+def supertrend_last(candles, period=10, mult=2.0):
+    """Supertrend(10,2). Returns (direction, line): +1 bullish, -1 bearish."""
+    if len(candles) <= period + 1:
+        return None, None
+    trs = []
+    for i, c in enumerate(candles):
+        pc = candles[i - 1]["close"] if i else c["close"]
+        trs.append(max(c["high"] - c["low"], abs(c["high"] - pc), abs(c["low"] - pc)))
+    atr = [None] * len(candles)
+    atr[period - 1] = sum(trs[:period]) / period
+    for i in range(period, len(candles)):
+        atr[i] = (atr[i - 1] * (period - 1) + trs[i]) / period
+    fu = fl = line = None
+    direction = 1
+    for i in range(period - 1, len(candles)):
+        c, pc = candles[i], candles[i - 1]["close"] if i else candles[i]["close"]
+        mid = (c["high"] + c["low"]) / 2
+        bu, bl = mid + mult * atr[i], mid - mult * atr[i]
+        fu = bu if fu is None or bu < fu or pc > fu else fu
+        fl = bl if fl is None or bl > fl or pc < fl else fl
+        if direction == 1 and c["close"] < fl:
+            direction = -1
+        elif direction == -1 and c["close"] > fu:
+            direction = 1
+        line = fl if direction == 1 else fu
+    return direction, line
+
+
+def bollinger_last(closes, period=20, mult=2.0):
+    if len(closes) < period:
+        return None, None
+    w = closes[-period:]
+    mean = sum(w) / period
+    sd = math.sqrt(sum((x - mean) ** 2 for x in w) / period)
+    return mean + mult * sd, mean - mult * sd
 
 
 def analyse_symbol(symbol, meta, now):
-    candles = fetch_intraday_candles(symbol, meta, now)
-    # Group candles by exchange-local date. The "current" session is the most
-    # recent one that has candles (today during market hours, otherwise the last
-    # trading day). CPR always uses the session BEFORE it.
-    sessions = {}
-    for candle in candles:
-        sessions.setdefault(candle["date"], []).append(candle)
-
-    dates = sorted(sessions)
+    candles = sorted(fetch_intraday_candles(symbol, meta, now), key=lambda x: x["time"])
+    dates = sorted({c["date"] for c in candles})
     if len(dates) < 2:
         raise RuntimeError("Need at least two trading sessions of candles")
-    current_date, previous_date = dates[-1], dates[-2]
-    today_candles = sorted(sessions[current_date], key=lambda x: x["time"])
-    previous_session = sorted(sessions[previous_date], key=lambda x: x["time"])
-    prev_high = max(c["high"] for c in previous_session)
-    prev_low = min(c["low"] for c in previous_session)
-    prev_close = previous_session[-1]["close"]
+    prev = [c for c in candles if c["date"] == dates[-2]]
+    ph, pl, pc = max(c["high"] for c in prev), min(c["low"] for c in prev), prev[-1]["close"]
 
-    pivot = (prev_high + prev_low + prev_close) / 3.0
-    bc_raw = (prev_high + prev_low) / 2.0
-    tc_raw = (2.0 * pivot) - bc_raw
-    cpr_tc = max(tc_raw, bc_raw)
-    cpr_bc = min(tc_raw, bc_raw)
+    pivot = (ph + pl + pc) / 3.0                      # today's CPR/pivots come from the last full session
+    bc_raw = (ph + pl) / 2.0
+    tc_raw = 2.0 * pivot - bc_raw
+    tc, bc = max(tc_raw, bc_raw), min(tc_raw, bc_raw)
+    cpr_width = (tc - bc) / pivot * 100
+    r1, s1 = 2 * pivot - pl, 2 * pivot - ph
 
-    # Use completed 5-minute candles from the current session plus recent
-    # history for a stable EMA at the start of the session.
-    all_closes = [c["close"] for c in sorted(candles, key=lambda x: x["time"]) if c["time"] <= today_candles[-1]["time"]]
-    ema9 = ema(all_closes, 9)
-    ema21 = ema(all_closes, 21)
-    if ema9 is None or ema21 is None:
-        raise RuntimeError("Not enough candles to calculate EMA 9/21")
+    # Only fully closed 5-minute candles count.
+    closed = [c for c in candles if c["time"] + timedelta(minutes=5) <= now] or candles
+    closes = [c["close"] for c in closed]
+    last = closed[-1]
+    ltp = last["close"]
 
-    ltp = today_candles[-1]["close"]
-    signal = "NEUTRAL"
-    option_side = "-"
-    if ltp > cpr_tc and ema9 > ema21:
-        signal, option_side = "BUY CALL", "CE"
-    elif ltp < cpr_bc and ema9 < ema21:
-        signal, option_side = "BUY PUT", "PE"
+    e9, e21 = ema_series(closes, 9)[-1], ema_series(closes, 21)[-1]
+    rsi = rsi_last(closes, 14)
+    st_dir, st_line = supertrend_last(closed, ST_PERIOD, ST_MULT)
+    bb_up, bb_lo = bollinger_last(closes, 20, 2.0)
+    if None in (e9, e21, rsi, st_dir, bb_up):
+        raise RuntimeError("Not enough candles for indicators")
+
+    narrow = cpr_width < NARROW_PCT
+    call_checks = {"ema": e9 > e21, "st": st_dir == 1, "rsi": rsi > 60, "pivot": ltp > r1, "bb": ltp > bb_up, "cpr": narrow}
+    put_checks = {"ema": e9 < e21, "st": st_dir == -1, "rsi": rsi < 40, "pivot": ltp < s1, "bb": ltp < bb_lo, "cpr": narrow}
+    call_score, put_score = sum(call_checks.values()), sum(put_checks.values())
+    signal = "BUY CALL" if call_score == 6 else "BUY PUT" if put_score == 6 else "NEUTRAL"
 
     step = float(meta["step"] or step_for(ltp))
-    atm = int(math.floor((ltp / step) + 0.5) * step)
-    # These SL/target figures are underlying-price reference levels, NOT option premiums.
-    if signal == "BUY CALL":
-        stop_loss = round(ltp * 0.992, 2)
-        target = round(ltp * 1.016, 2)
-        strike = f"{atm} CE"
-    elif signal == "BUY PUT":
-        stop_loss = round(ltp * 1.008, 2)
-        target = round(ltp * 0.984, 2)
-        strike = f"{atm} PE"
-    else:
-        stop_loss = None
-        target = None
-        strike = "-"
-
+    atm = int(math.floor(ltp / step + 0.5) * step)
+    call_side = call_score >= put_score
+    risk = abs(ltp - st_line)
     return {
-        "symbol": symbol,
-        "ltp": round(ltp, 2),
-        "chg_pct": round((ltp / prev_close - 1) * 100, 2),
-        "strength": round(abs(ema9 - ema21) / ltp * 100 + abs(ltp - pivot) / ltp * 100, 3),
-        "style": "INTRADAY",
-        "signal": signal,
-        "strike": strike,
-        "option_side": option_side,
-        "sl": stop_loss,
-        "target": target,
-        "cpr_tc": round(cpr_tc, 2),
-        "cpr_p": round(pivot, 2),
-        "cpr_bc": round(cpr_bc, 2),
-        "ema9": round(ema9, 2),
-        "ema21": round(ema21, 2),
-        "candle_time": today_candles[-1]["time"].strftime("%Y-%m-%d %H:%M:%S IST"),
+        "symbol": symbol, "ltp": round(ltp, 2), "chg_pct": round((ltp / pc - 1) * 100, 2),
+        "signal": signal, "call_score": call_score, "put_score": put_score,
+        "call_checks": call_checks, "put_checks": put_checks,
+        "strike_ce": f"{atm} CE", "strike_pe": f"{atm} PE",
+        "sl": round(st_line, 2), "target_ce": round(ltp + 2 * risk, 2), "target_pe": round(ltp - 2 * risk, 2),
+        "rsi": round(rsi, 1), "supertrend": round(st_line, 2), "ema9": round(e9, 2), "ema21": round(e21, 2),
+        "r1": round(r1, 2), "s1": round(s1, 2), "bb_upper": round(bb_up, 2), "bb_lower": round(bb_lo, 2),
+        "cpr_tc": round(tc, 2), "cpr_p": round(pivot, 2), "cpr_bc": round(bc, 2), "cpr_width": round(cpr_width, 3),
+        "candle_time": last["time"].strftime("%Y-%m-%d %H:%M IST"),
     }
 
 
@@ -190,9 +215,9 @@ def main():
     indices = []
     for name, ticker in INDEX_TILES.items():
         try:
-            indices.append(index_tile(name, ticker))
+            indices.append(index_tile(name, ticker, now))
         except Exception as exc:
-            errors.append({"symbol": name, "error": str(exc)[:200]})
+            errors.append({"symbol": f"{name} (index tile)", "error": str(exc)[:200]})
     print(f"Starting scan at {now:%Y-%m-%d %H:%M:%S %Z} (market_open={market_open})")
 
     watchlist, universe = build_watchlist()
@@ -211,8 +236,7 @@ def main():
             else:
                 errors.append(err)
     print(f"Scanned {len(rows)} of {len(watchlist)} symbols ({universe}), {len(errors)} errors")
-    rank = {"BUY CALL": 0, "BUY PUT": 0, "NEUTRAL": 1}
-    rows.sort(key=lambda r: (rank[r["signal"]], -r["strength"]))
+    rows.sort(key=lambda r: -max(r["call_score"], r["put_score"]))
 
     if not rows:
         # Keep the last good rows visible instead of blanking the website.
@@ -230,8 +254,8 @@ def main():
         "timezone": "Asia/Kolkata",
         "indices": indices,
         "universe": universe,
-        "bulls": sum(r["signal"] == "BUY CALL" for r in rows),
-        "bears": sum(r["signal"] == "BUY PUT" for r in rows),
+        "call_signals": sum(r["signal"] == "BUY CALL" for r in rows),
+        "put_signals": sum(r["signal"] == "BUY PUT" for r in rows),
         "total_scanned": len(rows),
         "signals_count": sum(1 for row in rows if row["signal"] != "NEUTRAL"),
         "data": rows,

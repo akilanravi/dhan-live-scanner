@@ -48,19 +48,17 @@
     .watch-call{background:#103b31;color:var(--green)}.watch-put{background:#4a2029;color:var(--red)}
     @media(max-width:650px){.tiles{grid-template-columns:1fr}}
     @media(max-width:650px){body{padding:14px}h1{font-size:19px}.stats{grid-template-columns:1fr 1fr}.stat:last-child{grid-column:span 2}}
-  </style>
+      .ok{color:var(--green);font-weight:800}.no{color:#5b6b83}
+    .rules{margin:0 0 12px;color:var(--muted);font-size:12px}
+    .pill.bad{background:#4a2029;color:var(--red)}
+</style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <div>
-      <h1>⚡ NSE Options Trading Scanner</h1>
-      <div class="sub">Yahoo Finance data · CPR + EMA 9/21 · CE / PE watchlist</div>
-    </div>
-    <div class="status">
-      <span id="connection" class="pill warn">Connecting…</span>
-      <span id="updated" class="pill">Waiting for first scan</span>
-    </div>
+    <div><h1>⚡ NSE Options Scanner</h1>
+    <div class="sub">Yahoo Finance data · Call &amp; Put option setups · Tomorrow's CPR for all F&amp;O</div></div>
+    <div class="status"><span id="connection" class="pill warn">Connecting…</span><span id="updated" class="pill">Waiting for first scan</span></div>
   </header>
 
   <div class="tape"><div class="tradingview-widget-container"><div class="tradingview-widget-container__widget"></div>
@@ -68,188 +66,196 @@
     {"symbols":[{"proName":"NSEIX:NIFTY1!","title":"GIFT Nifty"},{"proName":"NSE:NIFTY","title":"Nifty 50"},{"proName":"NSE:BANKNIFTY","title":"Bank Nifty"},{"proName":"BSE:SENSEX","title":"Sensex"}],"showSymbolLogo":false,"colorTheme":"dark","isTransparent":true,"displayMode":"adaptive","locale":"en"}
     </script></div></div>
   <section class="tiles" id="tiles"></section>
-  <nav class="tabs"><button id="tabLive" class="on">Live signals</button><button id="tabCpr">Tomorrow&#39;s CPR &middot; all F&amp;O</button></nav>
-  <div id="paneLive">
-  <section class="stats">
-    <div class="stat"><small>Symbols scanned</small><strong id="scanned">—</strong></div>
-    <div class="stat"><small>Bulls (Call) / Bears (Put)</small><strong id="signals">—</strong></div>
-    <div class="stat"><small>Market data age</small><strong id="age">—</strong></div>
-  </section>
-  <div class="filters" id="liveFilters">
-    <button data-f="signals" class="on">Signals</button><button data-f="bull">Bulls</button><button data-f="bear">Bears</button><button data-f="all">All</button>
-    <input id="lq" placeholder="Search symbol"><span id="universe" class="muted"></span>
+
+  <nav class="tabs">
+    <button id="tabCall" class="on">📈 Call options (CE)</button>
+    <button id="tabPut">📉 Put options (PE)</button>
+    <button id="tabCpr">Tomorrow's CPR · all F&amp;O</button>
+  </nav>
+
+  <div id="paneSig">
+    <p class="rules" id="rules"></p>
+    <section class="stats">
+      <div class="stat"><small>Symbols scanned</small><strong id="scanned">—</strong></div>
+      <div class="stat"><small id="sigLabel">Full Call signals</small><strong id="signals">—</strong></div>
+      <div class="stat"><small>Market data age</small><strong id="age">—</strong></div>
+    </section>
+    <div class="filters" id="liveFilters">
+      <button data-f="full" class="on">Full signal (6/6)</button><button data-f="near">Near (4+/6)</button><button data-f="all">All</button>
+      <input id="lq" placeholder="Search symbol"><span id="universe" class="muted"></span>
+    </div>
+    <section class="panel"><div class="table-wrap tall"><table>
+      <thead><tr><th>Symbol</th><th>LTP</th><th>Chg %</th><th>Score</th><th>EMA 9/21</th><th>Supertrend 10,2</th><th>RSI</th>
+        <th id="thPivot">Above R1</th><th id="thBB">Close &gt; BB</th><th>CPR narrow</th><th>Signal</th><th>Strike</th><th>SL</th><th>Target</th></tr></thead>
+      <tbody id="rows"><tr><td colspan="14" class="notice">Waiting for the first successful scan…</td></tr></tbody>
+    </table></div></section>
   </div>
 
-  <section class="panel">
-    <div class="table-wrap">
-      <table>
-        <thead><tr>
-          <th>Symbol</th><th>Underlying LTP</th><th>Chg %</th><th>Signal</th>
-          <th>Indicative ATM</th><th>Underlying SL</th><th>Underlying Target</th>
-          <th>CPR TC / P / BC</th><th>EMA 9 / 21</th>
-        </tr></thead>
-        <tbody id="rows"><tr><td colspan="9" class="notice">Waiting for the first successful GitHub Actions scan…</td></tr></tbody>
-      </table>
-    </div>
-  </section>
-  </div>
   <div id="paneCpr" hidden>
     <section class="stats">
-      <div class="stat"><small>Session analysed &rarr; plan for</small><strong id="cSessions">&mdash;</strong></div>
-      <div class="stat"><small>Call watch / Put watch</small><strong id="cWatch">&mdash;</strong></div>
-      <div class="stat"><small>Narrow-CPR stocks</small><strong id="cNarrow">&mdash;</strong></div>
+      <div class="stat"><small>Session analysed → plan for</small><strong id="cSessions">—</strong></div>
+      <div class="stat"><small>Call watch / Put watch</small><strong id="cWatch">—</strong></div>
+      <div class="stat"><small>Narrow-CPR stocks</small><strong id="cNarrow">—</strong></div>
     </section>
     <div class="filters" id="filters">
       <button data-f="picks" class="on">Picks</button><button data-f="call">Call watch</button><button data-f="put">Put watch</button>
-      <button data-f="narrow">Narrow CPR</button><button data-f="all">All F&amp;O</button>
-      <input id="q" placeholder="Search symbol">
+      <button data-f="narrow">Narrow CPR</button><button data-f="all">All F&amp;O</button><input id="q" placeholder="Search symbol">
     </div>
     <section class="panel"><div class="table-wrap tall"><table>
-      <thead><tr><th>Symbol</th><th>Lot</th><th>Close</th><th>Chg %</th><th>CPR width</th><th>TC / P / BC</th><th>vs today&#39;s CPR</th><th>Close vs CPR</th><th>Plan</th><th>Trigger</th><th>SL</th><th>T1 / T2</th></tr></thead>
+      <thead><tr><th>Symbol</th><th>Lot</th><th>Close</th><th>Chg %</th><th>CPR width</th><th>TC / P / BC</th><th>vs today's CPR</th><th>Close vs CPR</th><th>Plan</th><th>Trigger</th><th>SL</th><th>T1 / T2</th></tr></thead>
       <tbody id="cprRows"><tr><td colspan="12" class="notice">Evening scan has not run yet.</td></tr></tbody>
     </table></div></section>
     <p class="foot" id="cprNote"></p>
   </div>
+
   <div id="errors" hidden class="errors"></div>
-  <p class="foot">Refreshes every 30 seconds. Signals are rule-based watchlist alerts, not guaranteed trades. SL/target values refer to the underlying index/stock price, not the option premium. Confirm expiry, lot size, liquidity, spread and live option premium before trading. No orders are placed by this website.</p>
+  <p class="foot">Rule-based alerts on the underlying price, not guaranteed trades. SL/target are underlying levels (SL = Supertrend line, target = 2× risk), not option premium. Strikes are indicative only. Confirm expiry, lot size, liquidity and live premium. No orders are placed.</p>
 </div>
 <script>
   const $ = id => document.getElementById(id);
-  function cell(row, value, className='') {
-    const td = document.createElement('td');
-    if (className) td.className = className;
+  const fmt = v => v === null || v === undefined ? '—' : Number(v).toFixed(2);
+  function cell(row, value, cls = '') {
+    const td = document.createElement('td'); if (cls) td.className = cls;
     td.textContent = value === null || value === undefined || value === '' ? '—' : String(value);
-    row.appendChild(td);
+    row.appendChild(td); return td;
   }
-  function fmt(value) {
-    return value === null || value === undefined ? '—' : Number(value).toFixed(2);
-  }
-  async function refresh() {
-    try {
-      const response = await fetch(`live_data.json?cache=${Date.now()}`, {cache:'no-store'});
-      if (!response.ok) throw new Error(`Data file returned HTTP ${response.status}`);
-      const payload = await response.json();
-      const all = Array.isArray(payload.data) ? payload.data : [];
-      const lq = $('lq').value.trim().toUpperCase();
-      const rows = all.filter(x => (liveFilter === 'all' || (liveFilter === 'signals' && x.signal !== 'NEUTRAL') ||
-        (liveFilter === 'bull' && x.signal === 'BUY CALL') || (liveFilter === 'bear' && x.signal === 'BUY PUT')) &&
-        (!lq || x.symbol.toUpperCase().includes(lq)));
-      renderTiles(payload.indices);
-      $('universe').textContent = payload.universe ? `Universe: ${payload.universe}` : '';
-      $('updated').textContent = `Updated: ${payload.updated_at || 'unknown'}`;
-      $('scanned').textContent = payload.total_scanned ?? all.length;
-      $('signals').textContent = `${payload.bulls ?? '—'} / ${payload.bears ?? '—'}`;
+  function tick(row, ok, text) { const td = cell(row, (ok ? '✓ ' : '✗ ') + text, 'num ' + (ok ? 'ok' : 'no')); return td; }
 
-      let ageText = 'unknown';
-      let stale = false;
-      if (payload.updated_at) {
-        const parsed = new Date(payload.updated_at.replace(' IST', '+05:30'));
-        if (!Number.isNaN(parsed.getTime())) {
-          const minutes = Math.max(0, Math.floor((Date.now() - parsed.getTime()) / 60000));
-          ageText = minutes < 1 ? '<1 min' : `${minutes} min`;
-          stale = minutes > 15;
-        }
-      }
-      const closed = payload.market_open === false;
-      $('age').textContent = ageText;
-      let label = 'DATA RECEIVED';
-      if (payload.status === 'error') label = 'SCAN ERROR';
-      else if (closed) label = 'MARKET CLOSED · LAST SESSION';
-      else if (stale) label = 'STALE DATA';
-      $('connection').textContent = label;
-      $('connection').className = `pill ${payload.status === 'error' || (stale && !closed) ? 'warn' : (closed ? '' : 'live')}`;
-
-      const tbody = $('rows');
-      tbody.replaceChildren();
-      if (!rows.length) {
-        const tr = document.createElement('tr');
-        const td = document.createElement('td');
-        td.colSpan = 9;
-        td.className = 'notice';
-        td.textContent = all.length ? 'No symbols match this filter right now.' : 'No symbols were returned. Check the GitHub Actions run log.';
-        tr.appendChild(td); tbody.appendChild(tr);
-      } else {
-        rows.forEach(item => {
-          const tr = document.createElement('tr');
-          cell(tr, item.symbol, 'symbol');
-          cell(tr, `₹${fmt(item.ltp)}`, 'num');
-          const chg = document.createElement('td'); const cp = Number(item.chg_pct || 0);
-          chg.className = 'num ' + (cp >= 0 ? 'up' : 'down'); chg.textContent = `${cp >= 0 ? '+' : ''}${cp.toFixed(2)}%`; tr.appendChild(chg);
-          const signal = document.createElement('td');
-          const badge = document.createElement('span');
-          badge.className = `signal ${item.signal === 'BUY CALL' ? 'call' : item.signal === 'BUY PUT' ? 'put' : 'neutral'}`;
-          badge.textContent = item.signal || 'NEUTRAL';
-          signal.appendChild(badge); tr.appendChild(signal);
-          cell(tr, item.strike, 'strike num');
-          cell(tr, item.sl === null ? '—' : `₹${fmt(item.sl)}`, 'num');
-          cell(tr, item.target === null ? '—' : `₹${fmt(item.target)}`, 'num');
-          cell(tr, `${fmt(item.cpr_tc)} / ${fmt(item.cpr_p)} / ${fmt(item.cpr_bc)}`, 'num');
-          cell(tr, `${fmt(item.ema9)} / ${fmt(item.ema21)}`, 'num');
-          tbody.appendChild(tr);
-        });
-      }
-      const errors = Array.isArray(payload.errors) ? payload.errors : [];
-      if (errors.length) {
-        $('errors').hidden = false;
-        $('errors').textContent = `Some symbols could not be scanned: ${errors.map(e => `${e.symbol}: ${e.error}`).join(' | ')}`;
-      } else {
-        $('errors').hidden = true;
-        $('errors').textContent = '';
-      }
-    } catch (error) {
-      $('connection').textContent = 'NO DATA';
-      $('connection').className = 'pill warn';
-      $('rows').innerHTML = '<tr><td colspan="9" class="notice">Cannot load live_data.json. Check that GitHub Pages is deployed and the scanner workflow has completed.</td></tr>';
-      $('age').textContent = '—';
-    }
-  }
+  // ---- state ----
+  let side = 'call', liveFilter = 'full', live = null, cprData = null, cprFilter = 'picks';
 
   // ---- index tiles ----
-  function renderTiles(list) {
+  function renderTiles(p) {
     const box = $('tiles'); box.replaceChildren();
-    (list || []).forEach(t => {
+    const list = p.indices || [];
+    if (!list.length) {
+      const d = document.createElement('div'); d.className = 'tile'; d.style.gridColumn = '1 / -1';
+      const e = (p.errors || []).filter(x => /index tile/.test(x.symbol)).map(x => `${x.symbol}: ${x.error}`).join(' | ');
+      d.textContent = 'Index values not available from this scan. ' + (e || 'Run the workflow again; the live ticker above still updates in your browser.');
+      d.className = 'tile muted'; box.appendChild(d); return;
+    }
+    list.forEach(t => {
       const d = document.createElement('div'); d.className = 'tile';
-      const cls = t.change >= 0 ? 'up' : 'down', sign = t.change >= 0 ? '+' : '';
-      const s = document.createElement('small'); s.textContent = t.name;
+      const cls = t.change >= 0 ? 'up' : 'down', sg = t.change >= 0 ? '+' : '';
+      const s = document.createElement('small'); s.textContent = `${t.name} · ${t.as_of}`;
       const v = document.createElement('strong'); v.textContent = Number(t.ltp).toLocaleString('en-IN', {minimumFractionDigits: 2});
       const c = document.createElement('span'); c.className = 'chg ' + cls;
-      c.textContent = `${sign}${t.change.toFixed(2)} (${sign}${t.change_pct.toFixed(2)}%)`;
+      c.textContent = `${sg}${t.change.toFixed(2)} (${sg}${t.change_pct.toFixed(2)}%)`;
       d.append(s, v, c); box.appendChild(d);
     });
   }
+
+  // ---- Call / Put signal table ----
+  const RULES = {
+    call: 'CALL (CE) needs all 6: EMA 9 > EMA 21 · Supertrend(10,2) bullish · RSI(14) > 60 · price above pivot R1 · candle closes above upper Bollinger band (20,2) · today\'s CPR narrow (< 0.35% wide, built from yesterday).',
+    put: 'PUT (PE) needs all 6: EMA 9 < EMA 21 · Supertrend(10,2) bearish · RSI(14) < 40 · price below pivot S1 · candle closes below lower Bollinger band (20,2) · today\'s CPR narrow (< 0.35% wide, built from yesterday).'
+  };
+  function renderLive() {
+    const p = live; if (!p) return;
+    const isCall = side === 'call', key = isCall ? 'call' : 'put';
+    $('rules').textContent = RULES[side];
+    $('sigLabel').textContent = isCall ? 'Full Call signals' : 'Full Put signals';
+    $('thPivot').textContent = isCall ? 'Above R1' : 'Below S1';
+    $('thBB').textContent = isCall ? 'Close > upper BB' : 'Close < lower BB';
+    const all = Array.isArray(p.data) ? p.data : [];
+    const full = all.filter(r => r[key + '_score'] === 6).length;
+    $('scanned').textContent = p.total_scanned ?? all.length;
+    $('signals').textContent = full;
+    $('universe').textContent = p.universe ? `Universe: ${p.universe}` : '';
+    const q = $('lq').value.trim().toUpperCase();
+    const rows = all.filter(r => {
+      const sc = r[key + '_score'];
+      return (liveFilter === 'all' || (liveFilter === 'full' && sc === 6) || (liveFilter === 'near' && sc >= 4)) &&
+             (!q || r.symbol.toUpperCase().includes(q));
+    }).sort((a, b) => b[key + '_score'] - a[key + '_score'] || (isCall ? b.rsi - a.rsi : a.rsi - b.rsi));
+    const body = $('rows'); body.replaceChildren();
+    if (!rows.length) {
+      const tr = document.createElement('tr'), td = document.createElement('td');
+      td.colSpan = 14; td.className = 'notice';
+      td.textContent = all.length ? `No ${isCall ? 'Call' : 'Put'} setups match this filter right now. Try "Near (4+/6)" or "All".` : 'No symbols were returned. Check the GitHub Actions run log.';
+      tr.appendChild(td); body.appendChild(tr); return;
+    }
+    rows.forEach(r => {
+      const c = r[key + '_checks'], tr = document.createElement('tr');
+      cell(tr, r.symbol, 'symbol'); cell(tr, '₹' + fmt(r.ltp), 'num');
+      const cp = Number(r.chg_pct || 0); cell(tr, `${cp >= 0 ? '+' : ''}${cp.toFixed(2)}%`, 'num ' + (cp >= 0 ? 'up' : 'down'));
+      cell(tr, `${r[key + '_score']}/6`, 'num');
+      tick(tr, c.ema, `${fmt(r.ema9)} / ${fmt(r.ema21)}`);
+      tick(tr, c.st, fmt(r.supertrend));
+      tick(tr, c.rsi, r.rsi);
+      tick(tr, c.pivot, fmt(isCall ? r.r1 : r.s1));
+      tick(tr, c.bb, fmt(isCall ? r.bb_upper : r.bb_lower));
+      tick(tr, c.cpr, `${Number(r.cpr_width).toFixed(2)}%`);
+      const td = document.createElement('td'), b = document.createElement('span');
+      const hit = r.signal === (isCall ? 'BUY CALL' : 'BUY PUT');
+      b.className = 'signal ' + (hit ? (isCall ? 'call' : 'put') : 'neutral'); b.textContent = hit ? r.signal : 'WAIT';
+      td.appendChild(b); tr.appendChild(td);
+      cell(tr, hit ? (isCall ? r.strike_ce : r.strike_pe) : '—', 'strike num');
+      cell(tr, hit ? fmt(r.sl) : '—', 'num'); cell(tr, hit ? fmt(isCall ? r.target_ce : r.target_pe) : '—', 'num');
+      body.appendChild(tr);
+    });
+  }
+
+  async function refresh() {
+    try {
+      const response = await fetch(`live_data.json?cache=${Date.now()}`, {cache: 'no-store'});
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const p = await response.json(); live = p;
+      $('updated').textContent = `Updated: ${p.updated_at || 'unknown'}`;
+      let age = 'unknown', stale = false;
+      if (p.updated_at) {
+        const t = new Date(p.updated_at.replace(' IST', '+05:30').replace(' ', 'T'));
+        if (!Number.isNaN(t.getTime())) { const m = Math.max(0, Math.floor((Date.now() - t.getTime()) / 60000)); age = m < 1 ? '<1 min' : `${m} min`; stale = m > 15; }
+      }
+      $('age').textContent = age;
+      const closed = p.market_open === false;
+      let label = 'DATA RECEIVED';
+      if (p.status === 'error') label = 'SCAN ERROR'; else if (closed) label = 'MARKET CLOSED · LAST SESSION'; else if (stale) label = 'STALE DATA';
+      $('connection').textContent = label;
+      $('connection').className = 'pill ' + (p.status === 'error' || (stale && !closed) ? 'warn' : (closed ? '' : 'live'));
+      renderTiles(p); renderLive();
+      const errs = Array.isArray(p.errors) ? p.errors : [];
+      $('errors').hidden = !errs.length;
+      $('errors').textContent = errs.length ? `${errs.length} item(s) failed: ` + errs.slice(0, 12).map(e => `${e.symbol}: ${e.error}`).join(' | ') + (errs.length > 12 ? ' …' : '') : '';
+    } catch (e) {
+      $('connection').textContent = 'NO DATA'; $('connection').className = 'pill warn';
+      $('rows').innerHTML = '<tr><td colspan="14" class="notice">Cannot load live_data.json. Check that GitHub Pages is deployed and the workflow has completed.</td></tr>';
+    }
+  }
+
   // ---- tabs ----
-  $('tabLive').onclick = () => { $('paneLive').hidden = false; $('paneCpr').hidden = true; $('tabLive').className = 'on'; $('tabCpr').className = ''; };
-  $('tabCpr').onclick = () => { $('paneLive').hidden = true; $('paneCpr').hidden = false; $('tabCpr').className = 'on'; $('tabLive').className = ''; };
+  function setTab(t) {
+    const sig = t !== 'cpr'; $('paneSig').hidden = !sig; $('paneCpr').hidden = sig;
+    $('tabCall').className = t === 'call' ? 'on' : ''; $('tabPut').className = t === 'put' ? 'on' : ''; $('tabCpr').className = sig ? '' : 'on';
+    if (sig) { side = t; renderLive(); }
+  }
+  $('tabCall').onclick = () => setTab('call'); $('tabPut').onclick = () => setTab('put'); $('tabCpr').onclick = () => setTab('cpr');
+  document.querySelectorAll('#liveFilters button').forEach(b => b.onclick = () => {
+    liveFilter = b.dataset.f; document.querySelectorAll('#liveFilters button').forEach(x => x.className = x === b ? 'on' : ''); renderLive();
+  });
+  $('lq').oninput = renderLive;
+
   // ---- tomorrow's CPR ----
-  let cprData = null, cprFilter = 'picks';
-  function cprRow(tr, r, pinned) {
+  function cprRow(tr, r) {
     cell(tr, r.symbol, 'symbol'); cell(tr, r.lot ?? '—', 'num'); cell(tr, fmt(r.close), 'num');
-    const chg = document.createElement('td'); chg.className = 'num ' + (r.chg_pct >= 0 ? 'up' : 'down');
-    chg.textContent = `${r.chg_pct >= 0 ? '+' : ''}${r.chg_pct.toFixed(2)}%`; tr.appendChild(chg);
-    cell(tr, `${r.width_pct.toFixed(2)}% · ${r.cpr_class}`);
-    cell(tr, `${fmt(r.tc)} / ${fmt(r.p)} / ${fmt(r.bc)}`, 'num');
+    cell(tr, `${r.chg_pct >= 0 ? '+' : ''}${r.chg_pct.toFixed(2)}%`, 'num ' + (r.chg_pct >= 0 ? 'up' : 'down'));
+    cell(tr, `${r.width_pct.toFixed(2)}% · ${r.cpr_class}`); cell(tr, `${fmt(r.tc)} / ${fmt(r.p)} / ${fmt(r.bc)}`, 'num');
     cell(tr, r.cpr_vs_today); cell(tr, r.position);
     const td = document.createElement('td'), b = document.createElement('span');
     b.className = 'signal ' + (r.plan === 'BUY CALL WATCH' ? 'watch-call' : r.plan === 'BUY PUT WATCH' ? 'watch-put' : 'neutral');
     b.textContent = r.plan; td.appendChild(b); tr.appendChild(td);
-    cell(tr, r.trigger, 'strike'); cell(tr, r.sl === null ? '—' : fmt(r.sl), 'num');
-    cell(tr, r.t1 === null ? '—' : `${fmt(r.t1)} / ${fmt(r.t2)}`, 'num');
+    cell(tr, r.trigger, 'strike'); cell(tr, r.sl === null ? '—' : fmt(r.sl), 'num'); cell(tr, r.t1 === null ? '—' : `${fmt(r.t1)} / ${fmt(r.t2)}`, 'num');
   }
   function renderCpr() {
     if (!cprData) return;
     const q = $('q').value.trim().toUpperCase();
-    const keep = r => (cprFilter === 'all' || (cprFilter === 'picks' && r.plan !== 'WAIT') ||
-      (cprFilter === 'call' && r.plan === 'BUY CALL WATCH') || (cprFilter === 'put' && r.plan === 'BUY PUT WATCH') ||
-      (cprFilter === 'narrow' && r.width_pct < 0.35)) && (!q || r.symbol.toUpperCase().includes(q));
+    const keep = r => (cprFilter === 'all' || (cprFilter === 'picks' && r.plan !== 'WAIT') || (cprFilter === 'call' && r.plan === 'BUY CALL WATCH') ||
+      (cprFilter === 'put' && r.plan === 'BUY PUT WATCH') || (cprFilter === 'narrow' && r.width_pct < 0.35)) && (!q || r.symbol.toUpperCase().includes(q));
     const body = $('cprRows'); body.replaceChildren();
-    [...(cprData.indices || []), ...cprData.stocks.filter(keep)].forEach(r => {
-      const tr = document.createElement('tr'); cprRow(tr, r); body.appendChild(tr);
-    });
+    [...(cprData.indices || []), ...cprData.stocks.filter(keep)].forEach(r => { const tr = document.createElement('tr'); cprRow(tr, r); body.appendChild(tr); });
   }
   document.querySelectorAll('#filters button').forEach(b => b.onclick = () => {
-    cprFilter = b.dataset.f;
-    document.querySelectorAll('#filters button').forEach(x => x.className = x === b ? 'on' : '');
-    renderCpr();
+    cprFilter = b.dataset.f; document.querySelectorAll('#filters button').forEach(x => x.className = x === b ? 'on' : ''); renderCpr();
   });
   $('q').oninput = renderCpr;
   async function loadCpr() {
@@ -262,18 +268,9 @@
       $('cNarrow').textContent = `${cprData.narrow} of ${cprData.count}`;
       $('cprNote').textContent = `Generated ${cprData.generated_at} · universe: ${cprData.universe} · ${cprData.errors.length} symbols failed. ${cprData.note} Watch = narrow CPR (<0.35%) with CPR/EMA20 trend agreeing; enter only on the trigger break. Not trading advice.`;
       renderCpr();
-    } catch (e) { /* keep placeholder row */ }
+    } catch (e) { /* keep placeholder */ }
   }
-  loadCpr(); setInterval(loadCpr, 600000);
-  let liveFilter = 'signals', lastPayload = null;
-  document.querySelectorAll('#liveFilters button').forEach(b => b.onclick = () => {
-    liveFilter = b.dataset.f;
-    document.querySelectorAll('#liveFilters button').forEach(x => x.className = x === b ? 'on' : '');
-    refresh();
-  });
-  $('lq').oninput = refresh;
-  refresh();
-  setInterval(refresh, 30000);
+  refresh(); setInterval(refresh, 30000); loadCpr(); setInterval(loadCpr, 600000);
 </script>
 </body>
 </html>
