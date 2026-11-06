@@ -2,7 +2,7 @@ name: Dhan Options Scanner and Website Deploy
 
 on:
   schedule:
-    # GitHub cron uses UTC. scanner.py filters to NSE market hours (IST).
+    # GitHub cron uses UTC (03:00-10:59 UTC = 08:30-16:29 IST). After hours the site shows the last session.
     - cron: "*/5 3-10 * * 1-5"
   workflow_dispatch:
 
@@ -38,16 +38,30 @@ jobs:
         env:
           DHAN_CLIENT_ID: ${{ secrets.DHAN_CLIENT_ID }}
           DHAN_ACCESS_TOKEN: ${{ secrets.DHAN_ACCESS_TOKEN }}
+          # Optional (recommended): lets the scanner make a fresh token every run
+          DHAN_PIN: ${{ secrets.DHAN_PIN }}
+          DHAN_TOTP_SECRET: ${{ secrets.DHAN_TOTP_SECRET }}
         run: python scanner.py
 
+      - name: Build site folder
+        if: always()
+        run: |
+          mkdir -p _site
+          cp index.html _site/
+          cp live_data.json _site/
+          touch _site/.nojekyll
+
       - name: Configure GitHub Pages
+        if: always()
         uses: actions/configure-pages@v5
 
       - name: Upload website
+        if: always()
         uses: actions/upload-pages-artifact@v4
         with:
-          path: .
+          path: _site
 
       - name: Deploy website
         id: deployment
+        if: always()
         uses: actions/deploy-pages@v5
