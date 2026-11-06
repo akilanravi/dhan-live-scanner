@@ -2,9 +2,16 @@ name: Options Scanner and Website Deploy
 
 on:
   schedule:
-    # GitHub cron uses UTC (03:00-10:59 UTC = 08:30-16:29 IST). After hours the site shows the last session.
+    # UTC. Live scan every 5 min (08:30-16:25 IST); evening CPR scan at 16:30 IST.
     - cron: "*/5 3-10 * * 1-5"
+    - cron: "30 11 * * 1-5"
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "live = signals only, evening = signals + next-day CPR scan of all F&O"
+        type: choice
+        options: [evening, live]
+        default: evening
 
 permissions:
   contents: read
@@ -18,44 +25,52 @@ concurrency:
 jobs:
   scan-and-deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     environment:
       name: github-pages
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: "pip"
 
-      - name: Install dependencies
-        run: python -m pip install --upgrade pip -r requirements.txt
-
-      - name: Run market scanner
-        run: python scanner.py
-
-      - name: Build site folder
-        if: always()
-        run: |
-          mkdir -p _site
-          cp index.html _site/
-          cp live_data.json _site/
-          touch _site/.nojekyll
+      - run: python -m pip install --upgrade pip -r requirements.txt
 
       - name: Configure GitHub Pages
-        if: always()
+        id: pages
         uses: actions/configure-pages@v5
 
-      - name: Upload website
-        if: always()
-        uses: actions/upload-pages-artifact@v4
+      - name: Decide mode
+        run: |
+          if [ "${{ github.event.schedule }}" = "30 11 * * 1-5" ]; then MODE=evening
+          elif [ -n "${{ github.event.schedule }}" ]; then MODE=live
+          else MODE="${{ github.event.inputs.mode }}"; fi
+          echo "MODE=$MODE" >> "$GITHUB_ENV"
+
+      - name: Restore the last evening CPR file (also holds the top-100 volume list)
+        run: curl -fsSL "${{ steps.pages.outputs.base_url }}/cpr_nextday.json" -o cpr_nextday.json || echo "no previous CPR file yet"
+
+      - name: Live scan (indices + signals)
+        run: python scanner.py
+        continue-on-error: true
+
+      - name: Evening CPR scan (all F&O stocks)
+        if: env.MODE == 'evening'
+        run: python cpr_nextday.py
+        continue-on-error: true
+
+      - name: Build site folder
+        run: |
+          mkdir -p _site
+          cp index.html live_data.json _site/
+          [ -f cpr_nextday.json ] && cp cpr_nextday.json _site/ || true
+          touch _site/.nojekyll
+
+      - uses: actions/upload-pages-artifact@v4
         with:
           path: _site
 
-      - name: Deploy website
-        id: deployment
-        if: always()
+      - id: deployment
         uses: actions/deploy-pages@v5
